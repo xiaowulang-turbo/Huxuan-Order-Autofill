@@ -1,0 +1,80 @@
+---
+description: Project overview, architecture, MCP debug workflow, and injection testing loop for the Huxuan order autofill userscript.
+alwaysApply: true
+---
+
+# Huxuan Order Autofill — Project Rule
+
+## What this project is
+
+A single-file Tampermonkey userscript (`huxuan-order-basic-autofill.user.js`) that auto-fills form fields on two Tencent Huxuan (互选) page types:
+
+- **Order create** — `/trade/order_free_trade/:id/create`
+- **Recruitment create** — `/trade/recruitment/:id/create`
+
+It runs on `huxuan.qq.com`, `test-huxuan.qq.com`, and `pre-huxuan.qq.com`.
+
+## Architecture
+
+All field metadata lives in a single `FIELD_DEFS` array. Adding a new form field means adding one entry there — it automatically flows to config read/write, settings dialog, and form filling.
+
+Three complex interactions are kept as standalone async functions (not data-driven):
+- `ensureMarketingProject` — dropdown search with table/list UI variants
+- `ensurePromotionScene` — SVG/IMG icon card click matching
+- `ensureMarketingComponentAndFillPromo` — switch toggle + wait for DOM
+
+The page uses React controlled inputs — always use the native value setter pattern (see `setInputValue`).
+
+## Key constraints
+
+- All form inputs are **React controlled components**. Direct `el.value = x` does not work. Always use `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set` plus dispatching `input`/`change`/`blur` events.
+- Scene cards use **SVG icons**, not `<img>`. The `hasIcon()` helper checks both.
+- The marketing component switch (`label.spaui-switch[role=switch]`) may render late — use `waitForElement` with a timeout.
+- Placeholder text is the primary selector strategy. If Huxuan changes placeholder wording, selectors break.
+
+## Debug & test workflow (use Chrome DevTools MCP)
+
+### 1. Connect to the target page
+
+```
+list_pages → find the recruitment/order create page → select_page(pageId, bringToFront: true)
+```
+
+### 2. Inspect DOM structure
+
+Use `evaluate_script` to query elements, check React fiber keys, placeholder text, and switch state. Example:
+
+```js
+() => {
+  const el = document.querySelector('input[placeholder="请输入推广文案"]');
+  return { found: !!el, isReact: !!Object.keys(el || {}).find(k => k.startsWith('__reactInternalInstance')) };
+}
+```
+
+### 3. Inject-test the fill logic
+
+Mock GM_* APIs are unnecessary — extract the core fill functions, hardcode test config, and run via `evaluate_script`. Always:
+- Reset page state first (e.g. turn off marketing switch if on)
+- Return a result object with each field's final value
+- Check the result JSON — every field should have the expected value
+
+### 4. Fix → re-check loop
+
+```
+edit code → node --check file.js → evaluate_script inject test → verify result JSON → repeat if needed
+```
+
+### 5. Visual verification
+
+Use `take_screenshot` after filling to confirm the page looks correct. Scroll to top first (`window.scrollTo(0, 0)`).
+
+## Console log inspection
+
+Use `list_console_messages({ types: ["log", "error", "warn"], includePreservedMessages: true })` to read script output. All script logs are prefixed with `[互选下单基本信息填充]`.
+
+## Commit conventions
+
+- `feat:` for new autofill fields or page support
+- `fix:` for selector/timing/React compatibility fixes
+- `refactor:` for structural changes (like FIELD_DEFS migration)
+- `docs:` for README or rule changes
