@@ -116,6 +116,11 @@
       dId: 'ob-body-req', dLabel: '正文要求（任务需求-必填）', dReq: true,
       dType: 'textarea', dPh: '可要求正文必须露出某些文字…', dSec: 'recruitment' },
 
+    { key: 'publishDays', sk: 'orderBasic_publishDays', dflt: '30',
+      dId: 'ob-publish-days', dLabel: '发表时段（天数，从明天起算）',
+      dPh: '如 30', dSec: 'shared',
+      dHint: '自动选择日期范围：明天 至 明天+N天；留空或 0 则跳过' },
+
     { key: 'enabled', sk: 'orderBasic_enabled', dflt: true,
       dId: 'ob-enabled', dLabel: '启用脚本', dType: 'checkbox', dSec: 'settings' },
 
@@ -415,7 +420,36 @@
 
     if (picked) { log('已选择营销项目:', picked); await sleep(350); return; }
 
-    log('未在下拉里找到营销项目:', raw, '（可填项目名称或项目ID；若仍失败请检查列表是否懒加载）');
+    // 兜底：关闭面板 → 重新打开（清除搜索过滤） → 选第一行
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await sleep(400);
+
+    trigger.click();
+    await sleep(300);
+    const fallbackPanel = await waitForOpenPanel(selectRoot, 8000);
+    if (fallbackPanel) {
+      const fallbackRows = tableRows(fallbackPanel);
+      const fallbackLis = listItems(fallbackPanel);
+      if (fallbackRows.length > 0) {
+        const first = fallbackRows[0];
+        first.scrollIntoView({ block: 'nearest' });
+        first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        first.click();
+        log('营销项目未精确匹配，已兜底选择第一项:', first.textContent?.trim()?.slice(0, 80));
+        await sleep(350);
+        return;
+      }
+      if (fallbackLis.length > 0) {
+        const first = fallbackLis[0];
+        first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        first.click();
+        log('营销项目未精确匹配，已兜底选择第一项:', first.textContent?.trim()?.slice(0, 40));
+        await sleep(350);
+        return;
+      }
+    }
+
+    log('营销项目兜底失败：下拉列表为空');
     document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   }
 
@@ -459,6 +493,122 @@
     const hints = Array.from(new Set(candidates.map((c) => c.txt))).slice(0, 12);
     log('未找到推广场景卡片，当前可选项（部分）:', hints.join(' / ') || '无');
     log('请将「推广场景」配置为页面中的卡片文案，例如：推广品牌活动');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Publish date range picker
+  // ---------------------------------------------------------------------------
+
+  function formatDate(d) {
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  }
+
+  function getReactEventHandlers(el) {
+    const key = Object.keys(el).find((k) => k.startsWith('__reactEventHandlers'));
+    return key ? el[key] : null;
+  }
+
+  async function ensurePublishDateRange(days) {
+    const n = parseInt(days, 10);
+    if (!n || n <= 0) return;
+
+    const dc = document.querySelector('.datechoose');
+    if (!dc) { log('未找到发表时段选择器'); return; }
+
+    const eh = getReactEventHandlers(dc);
+    if (eh?.onClick) {
+      eh.onClick({ preventDefault() {}, stopPropagation() {} });
+    } else {
+      dc.click();
+    }
+    await sleep(800);
+
+    const picker = document.querySelector('.spaui-datepicker-open');
+    if (!picker) { log('发表时段面板未打开'); return; }
+
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const endDate = new Date(tomorrow);
+    endDate.setDate(endDate.getDate() + n - 1);
+    const startStr = formatDate(tomorrow);
+    const endStr = formatDate(endDate);
+
+    function reactClick(el) {
+      const reh = getReactEventHandlers(el);
+      if (reh?.onClick) reh.onClick({ preventDefault() {}, stopPropagation() {} });
+      else el.click();
+    }
+
+    function getDateAreas() {
+      return [...picker.querySelectorAll('.datearea')];
+    }
+
+    function getAreaYearMonth(area) {
+      const links = area.querySelectorAll('.ymselect a');
+      if (links.length >= 2) {
+        const y = parseInt(links[0].textContent, 10);
+        const m = parseInt(links[1].textContent, 10);
+        if (y && m) return { y, m };
+      }
+      return null;
+    }
+
+    function clickDayInArea(area, day) {
+      const cells = [...area.querySelectorAll('.spaui-datepicker-pointer')]
+        .filter((el) => !el.classList.contains('disabled') &&
+                        !el.classList.contains('spaui-datepicker-nextmonth-date') &&
+                        !el.classList.contains('spaui-datepicker-lastmonth-date') &&
+                        el.textContent.trim());
+      for (const cell of cells) {
+        if (cell.textContent.trim() === String(day)) {
+          reactClick(cell);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function clickNextMonth() {
+      const fwd = picker.querySelector('.roll-forward');
+      if (!fwd) return false;
+      reactClick(fwd);
+      return true;
+    }
+
+    async function findAreaAndClickDay(targetDate) {
+      const ty = targetDate.getFullYear();
+      const tm = targetDate.getMonth() + 1;
+      const td = targetDate.getDate();
+
+      for (let attempt = 0; attempt < 14; attempt++) {
+        for (const area of getDateAreas()) {
+          const ym = getAreaYearMonth(area);
+          if (ym && ym.y === ty && ym.m === tm) {
+            if (clickDayInArea(area, td)) return true;
+          }
+        }
+        if (!clickNextMonth()) return false;
+        await sleep(300);
+      }
+      return false;
+    }
+
+    const startClicked = await findAreaAndClickDay(tomorrow);
+    if (!startClicked) { log('发表时段：未能选中起始日期', startStr); return; }
+    await sleep(400);
+
+    const endClicked = await findAreaAndClickDay(endDate);
+    if (!endClicked) { log('发表时段：未能选中结束日期', endStr); return; }
+    await sleep(400);
+
+    const confirmBtn = picker.querySelector('button.spaui-button-primary');
+    if (confirmBtn) {
+      confirmBtn.click();
+      log('发表时段已选择:', startStr, '至', endStr);
+      await sleep(300);
+    } else {
+      log('发表时段面板未找到确定按钮');
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -542,6 +692,13 @@
       if (f.scope === 'order' && recruitment) continue;
       if (f.scope === 'recruitment' && !recruitment) continue;
       fillByPlaceholder(root, f, config[f.key]);
+    }
+
+    if (recruitment) {
+      const pubDays = parseInt(config.publishDays, 10);
+      if (pubDays > 0) {
+        await ensurePublishDateRange(pubDays);
+      }
     }
 
     if ((config.promoCopy || '').trim()) {
