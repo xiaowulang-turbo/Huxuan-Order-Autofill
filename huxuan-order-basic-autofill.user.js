@@ -80,6 +80,11 @@
       ph: '请输入微信号，以便创作者联系', scope: 'order', root: 'root', optional: true,
       dId: 'ob-wechat', dLabel: '业务对接人微信（选填）', dSec: 'top' },
 
+    { key: 'brandName', sk: 'orderBasic_brandName',
+      dId: 'ob-brand', dLabel: '集团名称（选填，留空选第一个）',
+      dPh: '如：品牌名称；留空则自动选第一项',
+      dHint: '仅下单页存在此下拉；按名称匹配或兜底选第一项', dSec: 'top' },
+
     { key: 'promoCopy', sk: 'orderBasic_promoCopy', enc: true,
       dId: 'ob-promo-copy', dLabel: '推广文案（选填，填写后自动启用营销组件）',
       dPh: '如：限时优惠',
@@ -420,37 +425,83 @@
 
     if (picked) { log('已选择营销项目:', picked); await sleep(350); return; }
 
-    // 兜底：关闭面板 → 重新打开（清除搜索过滤） → 选第一行
-    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await sleep(400);
+    // 兜底：选第一行
+    if (searchIn) {
+      setInputValue(searchIn, '');
+      searchIn.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+      await sleep(600);
+    }
+    const fallbackRows = tableRows(openPanel);
+    if (fallbackRows.length > 0) {
+      const first = fallbackRows[0];
+      first.scrollIntoView({ block: 'nearest' });
+      first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      first.click();
+      log('营销项目未精确匹配，已兜底选择第一项:', first.textContent?.trim()?.slice(0, 80));
+      await sleep(350);
+      return;
+    }
 
+    log('未在下拉里找到营销项目:', raw, '（下拉列表为空）');
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Brand name dropdown (集团名称)
+  // ---------------------------------------------------------------------------
+
+  async function ensureBrandName(name) {
+    const container = document.querySelector('.trade-form__item-brandName');
+    if (!container) return;
+
+    const selectRoot = container.querySelector('.spaui-select');
+    if (!selectRoot) return;
+
+    const currentText =
+      selectRoot.querySelector('.spaui-selection-item-content')?.textContent?.trim() ||
+      selectRoot.querySelector('.selection-single')?.textContent?.trim() || '';
+    if (currentText && currentText !== '请选择') {
+      log('集团名称已有值，跳过:', currentText.slice(0, 40));
+      return;
+    }
+
+    const trigger = selectRoot.querySelector('.selection-single');
+    if (!trigger) return;
     trigger.click();
-    await sleep(300);
-    const fallbackPanel = await waitForOpenPanel(selectRoot, 8000);
-    if (fallbackPanel) {
-      const fallbackRows = tableRows(fallbackPanel);
-      const fallbackLis = listItems(fallbackPanel);
-      if (fallbackRows.length > 0) {
-        const first = fallbackRows[0];
-        first.scrollIntoView({ block: 'nearest' });
-        first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-        first.click();
-        log('营销项目未精确匹配，已兜底选择第一项:', first.textContent?.trim()?.slice(0, 80));
-        await sleep(350);
-        return;
-      }
-      if (fallbackLis.length > 0) {
-        const first = fallbackLis[0];
-        first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-        first.click();
-        log('营销项目未精确匹配，已兜底选择第一项:', first.textContent?.trim()?.slice(0, 40));
-        await sleep(350);
-        return;
+    await sleep(600);
+
+    // 等待面板打开并出现选项
+    let items;
+    for (let i = 0; i < 10; i++) {
+      items = selectRoot.querySelectorAll('.selection-results li');
+      if (items.length > 0) break;
+      await sleep(200);
+    }
+    if (!items || items.length === 0) {
+      log('集团名称下拉无选项');
+      document.body.click();
+      return;
+    }
+
+    const raw = (name || '').trim();
+    if (raw) {
+      for (const li of items) {
+        const label = li.textContent?.trim() || '';
+        if (label.includes(raw)) {
+          li.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          li.click();
+          log('集团名称已选:', label.slice(0, 40));
+          await sleep(300);
+          return;
+        }
       }
     }
 
-    log('营销项目兜底失败：下拉列表为空');
-    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const first = items[0];
+    first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    first.click();
+    log('集团名称兜底选择第一项:', first.textContent?.trim()?.slice(0, 40));
+    await sleep(300);
   }
 
   // ---------------------------------------------------------------------------
@@ -682,6 +733,7 @@
         return false;
       }
       await ensureMarketingProject(root, config.marketingProject);
+      await ensureBrandName(config.brandName);
     }
 
     const task = (config.taskName && config.taskName.trim()) || defaultTaskName(config);
