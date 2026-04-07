@@ -121,6 +121,12 @@
       dId: 'ob-body-req', dLabel: '正文要求（任务需求-必填）', dReq: true,
       dType: 'textarea', dPh: '可要求正文必须露出某些文字…', dSec: 'recruitment' },
 
+    { key: 'miniGameId', sk: 'orderBasic_miniGameId',
+      ph: '请输入小游戏原始 ID', scope: 'common', root: 'doc', optional: true,
+      dId: 'ob-minigame', dLabel: '小游戏原始 ID（选填，推广场景为小游戏时出现）',
+      dPh: '如有，填写后自动填入；留空则跳过', dSec: 'shared',
+      dHint: '仅当推广场景选择「推广小游戏」时页面才出现此字段' },
+
     { key: 'publishDays', sk: 'orderBasic_publishDays', dflt: '30',
       dId: 'ob-publish-days', dLabel: '发表时段（天数，从明天起算）',
       dPh: '如 30', dSec: 'shared',
