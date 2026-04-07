@@ -2,17 +2,20 @@
 // @name         互选下单页-基本信息自动填充
 // @namespace    https://huxuan.qq.com/
 // @icon         https://file.daihuo.qq.com/fe_free_trade/favicon.png
-// @version      1.1.0
-// @description  在互选下单/招募创建页自动填充基础字段（营销项目、任务概况、预算与任务需求等）
+// @version      1.2.0
+// @description  在互选下单/招募创建页自动填充基础字段，支持选号列表页自动搜索
 // @author       xiaowu
 // @homepageURL  https://github.com/xiaowulang-turbo/Huxuan-AutoLogin
 // @supportURL   https://github.com/xiaowulang-turbo/Huxuan-AutoLogin/issues
 // @match        https://*.huxuan.qq.com/trade/order_free_trade/*/create*
 // @match        https://*.huxuan.qq.com/trade/recruitment/*/create*
+// @match        https://*.huxuan.qq.com/trade/selection/*/selection_list*
 // @match        https://huxuan.qq.com/trade/order_free_trade/*/create*
 // @match        https://huxuan.qq.com/trade/recruitment/*/create*
+// @match        https://huxuan.qq.com/trade/selection/*/selection_list*
 // @include      /^https:\/\/(test-|pre-)?huxuan\.qq\.com\/trade\/order_free_trade\/\d+\/create/
 // @include      /^https:\/\/(test-|pre-)?huxuan\.qq\.com\/trade\/recruitment\/\d+\/create/
+// @include      /^https:\/\/(test-|pre-)?huxuan\.qq\.com\/trade\/selection\/\d+\/selection_list/
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -132,6 +135,11 @@
       dPh: '如 30', dSec: 'shared',
       dHint: '自动选择日期范围：明天 至 明天+N天；留空或 0 则跳过' },
 
+    { key: 'selectionKeyword', sk: 'orderBasic_selectionKeyword', enc: true,
+      dId: 'ob-selection-kw', dLabel: '选号列表搜索关键词',
+      dPh: '如：美食探店',
+      dHint: '在选号列表页（selection_list）自动输入搜索框并点击搜索；留空则跳过', dSec: 'selection' },
+
     { key: 'enabled', sk: 'orderBasic_enabled', dflt: true,
       dId: 'ob-enabled', dLabel: '启用脚本', dType: 'checkbox', dSec: 'settings' },
 
@@ -142,6 +150,7 @@
   const SECTION_HEADERS = {
     shared: '通用（下单页 & 招募页）',
     recruitment: '招募任务页 <code>recruitment/.../create</code>',
+    selection: '选号列表页 <code>selection/.../selection_list</code>',
   };
 
   // ---------------------------------------------------------------------------
@@ -154,6 +163,10 @@
 
   function isOrderCreatePath(p) {
     return /\/trade\/order_free_trade\/\d+\/create/.test(p || '');
+  }
+
+  function isSelectionListPath(p) {
+    return /\/trade\/selection\/\d+\/selection_list/.test(p || '');
   }
 
   function log(...args) { console.log(PREFIX, ...args); }
@@ -276,7 +289,7 @@
   }
 
   function isFillConfigValidAny(c) {
-    return isOrderFillConfigValid(c) || isRecruitmentFillConfigValid(c);
+    return isOrderFillConfigValid(c) || isRecruitmentFillConfigValid(c) || !!(c.selectionKeyword || '').trim();
   }
 
   // ---------------------------------------------------------------------------
@@ -669,6 +682,43 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Selection list page — auto search
+  // ---------------------------------------------------------------------------
+
+  async function fillSelectionSearch(config) {
+    const keyword = (config.selectionKeyword || '').trim();
+    if (!keyword) { log('选号列表：搜索关键词为空，跳过'); return false; }
+
+    let searchInput;
+    try {
+      searchInput = await waitForElement(
+        '.playground-search-input input.spaui-input-native, input[placeholder="输入公众号名称搜索达人"]',
+        document,
+        15000
+      );
+    } catch {
+      log('选号列表：未找到搜索输入框');
+      return false;
+    }
+
+    setInputValue(searchInput, keyword);
+    await sleep(300);
+
+    const searchBtn = document.querySelector('button.playground-search-btn');
+    if (searchBtn) {
+      searchBtn.click();
+      log('选号列表：已搜索关键词:', keyword);
+    } else {
+      searchInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+      searchInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+      searchInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+      log('选号列表：已通过 Enter 键触发搜索:', keyword);
+    }
+
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
   // Marketing component switch + promo copy (complex — kept as-is)
   // ---------------------------------------------------------------------------
 
@@ -835,6 +885,8 @@ ${buildDialogRows('top')}
 ${buildDialogRows('shared')}
         <h4>${SECTION_HEADERS.recruitment}</h4>
 ${buildDialogRows('recruitment')}
+        <h4>${SECTION_HEADERS.selection}</h4>
+${buildDialogRows('selection')}
 ${buildCheckboxes()}
         <div class="btns">
           <button type="button" class="b-cancel" id="ob-close">关闭</button>
@@ -886,6 +938,15 @@ ${buildCheckboxes()}
     document.getElementById('ob-fillnow').addEventListener('click', async () => {
       const next = readDialogConfig({ enabled: true });
       const path = window.location.pathname || '';
+      if (isSelectionListPath(path)) {
+        if (!(next.selectionKeyword || '').trim()) {
+          log('立即填充：选号列表搜索关键词为空');
+          return;
+        }
+        close();
+        await fillSelectionSearch(next);
+        return;
+      }
       if (!isFillConfigValidForPath(next, path)) {
         log('立即填充：当前页面所需的必填项未齐（招募/下单校验规则不同，请对照设置表单）');
         return;
@@ -902,10 +963,27 @@ ${buildCheckboxes()}
 
   async function main() {
     const path = window.location.pathname || '';
-    if (!isOrderCreatePath(path) && !isRecruitmentCreatePath(path)) return;
+    const isOrder = isOrderCreatePath(path);
+    const isRecruitment = isRecruitmentCreatePath(path);
+    const isSelection = isSelectionListPath(path);
+
+    if (!isOrder && !isRecruitment && !isSelection) return;
 
     const config = getConfig();
     if (!config.enabled) { log('已禁用'); return; }
+
+    if (isSelection) {
+      if (!(config.selectionKeyword || '').trim()) {
+        log('选号列表：搜索关键词未配置，请通过油猴菜单「互选下单·基本信息填充设置」填写');
+        showConfigDialog();
+        return;
+      }
+      if (config.autoOnLoad) {
+        try { await fillSelectionSearch(config); }
+        catch (e) { log('选号列表自动搜索失败:', e?.message || e); }
+      }
+      return;
+    }
 
     if (!isFillConfigValidForPath(config, path)) {
       log('配置未完成，请通过油猴菜单「互选下单·基本信息填充设置」填写');
