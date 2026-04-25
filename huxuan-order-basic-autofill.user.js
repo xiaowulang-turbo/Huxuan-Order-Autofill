@@ -2,7 +2,7 @@
 // @name         互选下单页-基本信息自动填充
 // @namespace    https://huxuan.qq.com/
 // @icon         https://file.daihuo.qq.com/fe_free_trade/favicon.png
-// @version      1.2.0
+// @version      1.2.1
 // @description  在互选下单/招募创建页自动填充基础字段，支持选号列表页自动搜索
 // @author       xiaowu
 // @homepageURL  https://github.com/xiaowulang-turbo/Huxuan-AutoLogin
