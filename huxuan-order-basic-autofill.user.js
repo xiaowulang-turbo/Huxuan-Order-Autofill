@@ -343,7 +343,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Marketing project dropdown (complex — kept as-is)
+  // Marketing project dropdown — pick the first available option
   // ---------------------------------------------------------------------------
 
   function getMarketingSelectRoot(root) {
@@ -364,23 +364,22 @@
     return document.querySelector('.dhx-list-table-select.spaui-select-open, .spaui-select.spaui-select-open');
   }
 
-  async function ensureMarketingProject(root, name) {
-    const raw = (name || '').trim();
-    if (!raw) return;
-
+  async function ensureMarketingProject(root) {
     const selectRoot = getMarketingSelectRoot(root);
     if (!selectRoot) { log('未找到营销项目下拉'); return; }
 
-    const collapsedText =
+    const currentText =
       selectRoot.querySelector('.selection-single-text')?.getAttribute('title') ||
       selectRoot.querySelector('.spaui-selection-item-content')?.textContent?.trim() ||
-      selectRoot.textContent?.trim() || '';
-    if (collapsedText && collapsedText.includes(raw)) {
-      log('营销项目已是目标项，跳过:', collapsedText.slice(0, 80));
+      selectRoot.querySelector('.selection-single')?.textContent?.trim() ||
+      '';
+    const normalizedCurrentText = currentText.replace(/\s+/g, '').trim();
+    if (normalizedCurrentText && !['请选择', '请选择营销项目'].includes(normalizedCurrentText)) {
+      log('营销项目已选择，跳过:', currentText.slice(0, 80));
       return;
     }
 
-    const trigger = selectRoot.querySelector('.selection-single');
+    const trigger = selectRoot.querySelector('.selection-single') || selectRoot;
     if (!trigger) return;
     trigger.click();
     await sleep(250);
@@ -388,80 +387,24 @@
     const openPanel = await waitForOpenPanel(selectRoot, 10000);
     if (!openPanel) { log('营销项目面板未打开'); return; }
 
-    const searchIn =
-      openPanel.querySelector('input[placeholder="输入项目名称 / 项目ID 搜索"]') ||
-      document.querySelector('input[placeholder="输入项目名称 / 项目ID 搜索"]');
-
-    if (searchIn) {
-      searchIn.focus();
-      setInputValue(searchIn, raw);
-      searchIn.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
-      searchIn.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-      await sleep(700);
-    }
-
     const tableRows = (p) =>
-      [...p.querySelectorAll('tbody tr.art-table-row, tbody tr:not(.art-table-header-row)')].filter((tr) => !tr.closest('thead'));
+      [...p.querySelectorAll('tbody tr.art-table-row, tbody tr:not(.art-table-header-row)')]
+        .filter((tr) => !tr.closest('thead') && (tr.textContent || '').trim());
     const listItems = (p) =>
-      p.querySelectorAll('.selection-results li, .selection-drop .selection-results li');
+      [...p.querySelectorAll('.selection-results li, .selection-drop .selection-results li')]
+        .filter((li) => (li.textContent || '').trim());
 
-    function tryClickTableRow(panel, key) {
-      for (const tr of tableRows(panel)) {
-        const t = (tr.textContent || '').replace(/\s+/g, '');
-        if (t.includes(key.replace(/\s+/g, '')) || (tr.textContent || '').includes(key)) {
-          tr.scrollIntoView({ block: 'nearest' });
-          tr.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-          tr.click();
-          return tr.textContent?.trim().slice(0, 80);
-        }
-      }
-      return null;
-    }
-
-    function tryClickListItem(panel, key) {
-      for (const li of listItems(panel)) {
-        const label =
-          li.querySelector('.selection-name')?.getAttribute('title') ||
-          li.querySelector('.name')?.textContent?.trim() ||
-          li.textContent?.trim() || '';
-        if (label && label.includes(key)) {
-          li.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-          li.click();
-          return label;
-        }
-      }
-      return null;
-    }
-
-    let picked = tryClickTableRow(openPanel, raw) || tryClickListItem(openPanel, raw);
-
-    if (!picked && searchIn) {
-      setInputValue(searchIn, '');
-      searchIn.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-      await sleep(600);
-      picked = tryClickTableRow(openPanel, raw) || tryClickListItem(openPanel, raw);
-    }
-
-    if (picked) { log('已选择营销项目:', picked); await sleep(350); return; }
-
-    // 兜底：选第一行
-    if (searchIn) {
-      setInputValue(searchIn, '');
-      searchIn.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-      await sleep(600);
-    }
-    const fallbackRows = tableRows(openPanel);
-    if (fallbackRows.length > 0) {
-      const first = fallbackRows[0];
+    const first = tableRows(openPanel)[0] || listItems(openPanel)[0];
+    if (first) {
       first.scrollIntoView({ block: 'nearest' });
       first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       first.click();
-      log('营销项目未精确匹配，已兜底选择第一项:', first.textContent?.trim()?.slice(0, 80));
+      log('已选择第一个营销项目:', first.textContent?.trim()?.slice(0, 80));
       await sleep(350);
       return;
     }
 
-    log('未在下拉里找到营销项目:', raw, '（下拉列表为空）');
+    log('营销项目下拉列表为空');
     document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   }
 
@@ -788,7 +731,7 @@
         log('未找到「营销项目」下拉（是否非下单创建页？）');
         return false;
       }
-      await ensureMarketingProject(root, config.marketingProject);
+      await ensureMarketingProject(root);
       await ensureBrandName(config.brandName);
     }
 
