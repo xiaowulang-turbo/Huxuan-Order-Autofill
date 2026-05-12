@@ -2,7 +2,7 @@
 // @name         互选下单页-基本信息自动填充
 // @namespace    https://huxuan.qq.com/
 // @icon         https://file.daihuo.qq.com/fe_free_trade/favicon.png
-// @version      1.2.1
+// @version      1.2.2
 // @description  在互选下单/招募创建页自动填充基础字段，支持选号列表页自动搜索
 // @author       xiaowu
 // @homepageURL  https://github.com/xiaowulang-turbo/Huxuan-AutoLogin
@@ -83,6 +83,13 @@
       ph: '请输入微信号，以便创作者联系', scope: 'order', root: 'root', optional: true,
       dId: 'ob-wechat', dLabel: '业务对接人微信（选填）', dSec: 'top' },
 
+    { key: 'writingReq', sk: 'orderBasic_writingReq', enc: true,
+      ph: '请填写本次推广的品牌标语、口号或想要传递的关键信息、禁止出现内容',
+      ta: true, scope: 'order', root: 'doc',
+      dId: 'ob-writing-req', dLabel: '撰文要求（下单页必填）', dReq: true,
+      dType: 'textarea', dPh: '如：需要在文章中提及品牌名称…',
+      dHint: '仅 <code>order_free_trade/.../create</code> 需要；招募页可留空', dSec: 'top' },
+
     { key: 'brandName', sk: 'orderBasic_brandName',
       dId: 'ob-brand', dLabel: '集团名称（选填，留空选第一个）',
       dPh: '如：品牌名称；留空则自动选第一项',
@@ -156,6 +163,19 @@
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  function showToast(msg, duration = 4000) {
+    const el = document.createElement('div');
+    el.textContent = msg;
+    Object.assign(el.style, {
+      position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)',
+      background: '#333', color: '#fff', padding: '10px 20px', borderRadius: '8px',
+      fontSize: '14px', zIndex: '9999999', boxShadow: '0 4px 12px rgba(0,0,0,.2)',
+      whiteSpace: 'nowrap', transition: 'opacity .3s',
+    });
+    document.body.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, duration);
+  }
 
   function isRecruitmentCreatePath(p) {
     return /\/trade\/recruitment\/\d+\/create/.test(p || '');
@@ -266,7 +286,7 @@
   }
 
   function isOrderFillConfigValid(c) {
-    return !!(c.marketingProject && c.promotedProduct && c.productIntro && c.phone && taskNameOk(c));
+    return !!(c.marketingProject && c.promotedProduct && c.productIntro && c.phone && c.writingReq && taskNameOk(c));
   }
 
   function isRecruitmentFillConfigValid(c) {
@@ -286,10 +306,6 @@
     if (isRecruitmentCreatePath(path)) return isRecruitmentFillConfigValid(c);
     if (isOrderCreatePath(path)) return isOrderFillConfigValid(c);
     return isOrderFillConfigValid(c) || isRecruitmentFillConfigValid(c);
-  }
-
-  function isFillConfigValidAny(c) {
-    return isOrderFillConfigValid(c) || isRecruitmentFillConfigValid(c) || !!(c.selectionKeyword || '').trim();
   }
 
   // ---------------------------------------------------------------------------
@@ -357,14 +373,12 @@
       const trs = selectRoot.querySelectorAll('tbody tr.art-table-row, tbody tr:not(.art-table-header-row)');
       const lis = selectRoot.querySelectorAll('.selection-results li, .selection-drop .selection-results li');
       if (trs.length > 0 || lis.length > 0) return selectRoot;
-      if (selectRoot.querySelector('.dhx-list-table-select__table') || selectRoot.querySelector('table tbody')) { await sleep(100); continue; }
-      if (selectRoot.querySelector('.selection-drop')) return selectRoot;
-      await sleep(80);
+      await sleep(100);
     }
     return document.querySelector('.dhx-list-table-select.spaui-select-open, .spaui-select.spaui-select-open');
   }
 
-  async function ensureMarketingProject(root) {
+  async function ensureMarketingProject(root, retries = 3) {
     const selectRoot = getMarketingSelectRoot(root);
     if (!selectRoot) { log('未找到营销项目下拉'); return; }
 
@@ -379,40 +393,50 @@
       return;
     }
 
-    const trigger = selectRoot.querySelector('.selection-single') || selectRoot;
-    if (!trigger) return;
-    trigger.click();
-    await sleep(250);
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      const trigger = selectRoot.querySelector('.selection-single') || selectRoot;
+      if (!trigger) return;
+      trigger.click();
+      await sleep(300 + attempt * 200);
 
-    const openPanel = await waitForOpenPanel(selectRoot, 10000);
-    if (!openPanel) { log('营销项目面板未打开'); return; }
+      const openPanel = await waitForOpenPanel(selectRoot, 8000 + attempt * 2000);
+      if (!openPanel) {
+        log(`营销项目面板未打开 (尝试 ${attempt}/${retries})`);
+        document.body.click();
+        await sleep(500);
+        continue;
+      }
 
-    const tableRows = (p) =>
-      [...p.querySelectorAll('tbody tr.art-table-row, tbody tr:not(.art-table-header-row)')]
-        .filter((tr) => !tr.closest('thead') && (tr.textContent || '').trim());
-    const listItems = (p) =>
-      [...p.querySelectorAll('.selection-results li, .selection-drop .selection-results li')]
-        .filter((li) => (li.textContent || '').trim());
+      const tableRows = (p) =>
+        [...p.querySelectorAll('tbody tr.art-table-row, tbody tr:not(.art-table-header-row)')]
+          .filter((tr) => !tr.closest('thead') && (tr.textContent || '').trim());
+      const listItems = (p) =>
+        [...p.querySelectorAll('.selection-results li, .selection-drop .selection-results li')]
+          .filter((li) => (li.textContent || '').trim());
 
-    const first = tableRows(openPanel)[0] || listItems(openPanel)[0];
-    if (first) {
-      first.scrollIntoView({ block: 'nearest' });
-      first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      first.click();
-      log('已选择第一个营销项目:', first.textContent?.trim()?.slice(0, 80));
-      await sleep(350);
-      return;
+      const first = tableRows(openPanel)[0] || listItems(openPanel)[0];
+      if (first) {
+        first.scrollIntoView({ block: 'nearest' });
+        first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        first.click();
+        log('已选择第一个营销项目:', first.textContent?.trim()?.slice(0, 80));
+        await sleep(350);
+        return;
+      }
+
+      log(`营销项目下拉列表为空 (尝试 ${attempt}/${retries})`);
+      document.body.click();
+      await sleep(800 + attempt * 500);
     }
 
-    log('营销项目下拉列表为空');
-    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    log('营销项目：多次重试后仍未能选中');
   }
 
   // ---------------------------------------------------------------------------
   // Brand name dropdown (集团名称)
   // ---------------------------------------------------------------------------
 
-  async function ensureBrandName(name) {
+  async function ensureBrandName(name, retries = 3) {
     const container = document.querySelector('.trade-form__item-brandName');
     if (!container) return;
 
@@ -427,43 +451,49 @@
       return;
     }
 
-    const trigger = selectRoot.querySelector('.selection-single');
-    if (!trigger) return;
-    trigger.click();
-    await sleep(600);
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      const trigger = selectRoot.querySelector('.selection-single');
+      if (!trigger) return;
+      trigger.click();
+      await sleep(600 + attempt * 300);
 
-    // 等待面板打开并出现选项
-    let items;
-    for (let i = 0; i < 10; i++) {
-      items = selectRoot.querySelectorAll('.selection-results li');
-      if (items.length > 0) break;
-      await sleep(200);
-    }
-    if (!items || items.length === 0) {
-      log('集团名称下拉无选项');
-      document.body.click();
+      let items;
+      for (let i = 0; i < 15; i++) {
+        items = selectRoot.querySelectorAll('.selection-results li');
+        if (items.length > 0) break;
+        await sleep(200);
+      }
+
+      if (!items || items.length === 0) {
+        log(`集团名称下拉无选项 (尝试 ${attempt}/${retries})`);
+        document.body.click();
+        await sleep(500 + attempt * 300);
+        continue;
+      }
+
+      const raw = (name || '').trim();
+      if (raw) {
+        for (const li of items) {
+          const label = li.textContent?.trim() || '';
+          if (label.includes(raw)) {
+            li.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            li.click();
+            log('集团名称已选:', label.slice(0, 40));
+            await sleep(300);
+            return;
+          }
+        }
+      }
+
+      const first = items[0];
+      first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      first.click();
+      log('集团名称兜底选择第一项:', first.textContent?.trim()?.slice(0, 40));
+      await sleep(300);
       return;
     }
 
-    const raw = (name || '').trim();
-    if (raw) {
-      for (const li of items) {
-        const label = li.textContent?.trim() || '';
-        if (label.includes(raw)) {
-          li.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-          li.click();
-          log('集团名称已选:', label.slice(0, 40));
-          await sleep(300);
-          return;
-        }
-      }
-    }
-
-    const first = items[0];
-    first.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    first.click();
-    log('集团名称兜底选择第一项:', first.textContent?.trim()?.slice(0, 40));
-    await sleep(300);
+    log('集团名称：多次重试后仍未能选中');
   }
 
   // ---------------------------------------------------------------------------
@@ -799,8 +829,10 @@
     GM_addStyle(`
       #huxuan-order-basic-dialog { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:999999;
         display:flex; align-items:center; justify-content:center; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
-      #huxuan-order-basic-dialog .box { background:#fff; border-radius:12px; padding:28px 32px; width:480px;
-        box-shadow:0 8px 32px rgba(0,0,0,.15); max-height:90vh; overflow-y:auto; }
+      #huxuan-order-basic-dialog .box { background:#fff; border-radius:12px; width:480px;
+        box-shadow:0 8px 32px rgba(0,0,0,.15); max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
+      #huxuan-order-basic-dialog .box-body { flex:1; overflow-y:auto; padding:28px 32px 12px; }
+      #huxuan-order-basic-dialog .box-footer { flex-shrink:0; padding:12px 32px 20px; border-top:1px solid #eee; background:#fff; border-radius:0 0 12px 12px; }
       #huxuan-order-basic-dialog h4 { margin:20px 0 10px; font-size:15px; color:#333; border-top:1px solid #eee; padding-top:16px; }
       #huxuan-order-basic-dialog h3 { margin:0 0 16px; font-size:18px; text-align:center; color:#1a1a1a; }
       #huxuan-order-basic-dialog .row { margin-bottom:12px; }
@@ -812,7 +844,7 @@
       #huxuan-order-basic-dialog .hint { font-size:12px; color:#999; margin-top:2px; }
       #huxuan-order-basic-dialog .chk { display:flex; align-items:center; gap:8px; margin:10px 0; }
       #huxuan-order-basic-dialog .chk input { width:auto; }
-      #huxuan-order-basic-dialog .btns { display:flex; gap:10px; margin-top:18px; }
+      #huxuan-order-basic-dialog .btns { display:flex; gap:10px; margin-top:10px; }
       #huxuan-order-basic-dialog .btns button { flex:1; padding:8px 16px; border:none; border-radius:6px; font-size:14px; cursor:pointer; }
       #huxuan-order-basic-dialog .b-primary { background:#1677ff; color:#fff; }
       #huxuan-order-basic-dialog .b-cancel { background:#f0f0f0; color:#333; }
@@ -822,21 +854,25 @@
     wrap.id = 'huxuan-order-basic-dialog';
     wrap.innerHTML = `
       <div class="box">
-        <h3>基本信息自动填充</h3>
+        <div class="box-body">
+          <h3>基本信息自动填充</h3>
 ${buildDialogRows('top')}
-        <h4>${SECTION_HEADERS.shared}</h4>
+          <h4>${SECTION_HEADERS.shared}</h4>
 ${buildDialogRows('shared')}
-        <h4>${SECTION_HEADERS.recruitment}</h4>
+          <h4>${SECTION_HEADERS.recruitment}</h4>
 ${buildDialogRows('recruitment')}
-        <h4>${SECTION_HEADERS.selection}</h4>
+          <h4>${SECTION_HEADERS.selection}</h4>
 ${buildDialogRows('selection')}
 ${buildCheckboxes()}
-        <div class="btns">
-          <button type="button" class="b-cancel" id="ob-close">关闭</button>
-          <button type="button" class="b-primary" id="ob-save">保存</button>
         </div>
-        <div class="btns">
-          <button type="button" class="b-primary" id="ob-fillnow" style="flex:1">仅本次：立即填充</button>
+        <div class="box-footer">
+          <div class="btns">
+            <button type="button" class="b-cancel" id="ob-close">关闭</button>
+            <button type="button" class="b-primary" id="ob-save">保存</button>
+          </div>
+          <div class="btns">
+            <button type="button" class="b-primary" id="ob-fillnow" style="flex:1">仅本次：立即填充</button>
+          </div>
         </div>
       </div>`;
     document.body.appendChild(wrap);
@@ -869,12 +905,16 @@ ${buildCheckboxes()}
 
     document.getElementById('ob-save').addEventListener('click', () => {
       const next = readDialogConfig();
-      if (!isFillConfigValidAny(next)) {
-        log('保存失败：请至少完成一套有效配置——下单页（营销项目+手机+产品与介绍+任务名/前缀）或招募页（推广场景+预算三项+标题/正文要求+产品与介绍+任务名/前缀）');
+      const missing = FIELD_DEFS
+        .filter((f) => f.dReq && f.dType !== 'checkbox' && !(next[f.key] || '').toString().trim())
+        .map((f) => f.dLabel.replace(/（.*$/, ''));
+      if (!taskNameOk(next)) missing.unshift('任务名称或自动生成前缀');
+      if (missing.length) {
+        showToast('⚠ 以下必填项未填写：' + missing.join('、'));
         return;
       }
       saveConfig(next);
-      log('已保存');
+      showToast('✅ 配置已保存', 2000);
       close();
     });
 
@@ -917,8 +957,8 @@ ${buildCheckboxes()}
 
     if (isSelection) {
       if (!(config.selectionKeyword || '').trim()) {
-        log('选号列表：搜索关键词未配置，请通过油猴菜单「互选下单·基本信息填充设置」填写');
-        showConfigDialog();
+        log('选号列表：搜索关键词未配置，可通过油猴菜单「互选下单·基本信息填充设置」填写');
+        showToast('⚠ 选号列表搜索关键词未配置，请通过油猴菜单设置');
         return;
       }
       if (config.autoOnLoad) {
