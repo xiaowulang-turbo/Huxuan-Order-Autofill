@@ -137,10 +137,52 @@
       dPh: '如有，填写后自动填入；留空则跳过', dSec: 'shared',
       dHint: '仅当推广场景选择「推广小游戏」时页面才出现此字段' },
 
-    { key: 'publishDays', sk: 'orderBasic_publishDays', dflt: '30',
-      dId: 'ob-publish-days', dLabel: '发表时段（天数，从明天起算）',
+    { key: 'registrationDays', sk: 'orderBasic_registrationDays', dflt: '30',
+      dId: 'ob-reg-days', dLabel: '报名时段（天数，从明天起算）',
       dPh: '如 30', dSec: 'shared',
       dHint: '自动选择日期范围：明天 至 明天+N天；留空或 0 则跳过' },
+
+    { key: 'publishDays', sk: 'orderBasic_publishDays', dflt: '30',
+      dId: 'ob-publish-days', dLabel: '发表时段（天数，从报名开始+2天起算）',
+      dPh: '如 30', dSec: 'shared',
+      dHint: '起始日 = 报名开始日+2天，截止日 = 起始日+N天；留空或 0 则跳过' },
+
+    { key: 'finderCpmPrice', sk: 'orderBasic_finderCpmPrice', enc: true,
+      ph: '请输入本次招募任务的 CPM 单价', scope: 'finder', root: 'doc', norm: 'number',
+      dId: 'ob-finder-cpm', dLabel: 'CPM 单价（元）', dReq: true,
+      dPh: '如 15', dSec: 'finder' },
+
+    { key: 'finderContentReq', sk: 'orderBasic_finderContentReq', enc: true,
+      ph: '例如产品实物出镜、近景特写、达人出镜、镜头时长、指定画面、口播介绍指定文字、品牌、slogan、商品卖点，是否添加口播字幕等',
+      ta: true, scope: 'finder', root: 'doc',
+      dId: 'ob-finder-content', dLabel: '视频内容要求', dReq: true,
+      dType: 'textarea', dPh: '例如产品实物出镜、近景特写…', dSec: 'finder' },
+
+    { key: 'finderTitleReq', sk: 'orderBasic_finderTitleReq', enc: true,
+      ph: '输入视频号下方的描述文案，仅供创作者参考，创作者可能会调整文案内容',
+      ta: true, scope: 'finder', root: 'doc', optional: true,
+      dId: 'ob-finder-title', dLabel: '标题文案要求（选填）',
+      dType: 'textarea', dPh: '输入视频号下方的描述文案…', dSec: 'finder' },
+
+    { key: 'finderTopic', sk: 'orderBasic_finderTopic', enc: true,
+      ph: '请指定需要添加的 #话题，以 "#" 开头', scope: 'finder', root: 'doc', optional: true,
+      dId: 'ob-finder-topic', dLabel: '#话题（选填）',
+      dPh: '如 #品牌活动', dSec: 'finder' },
+
+    { key: 'finderMention', sk: 'orderBasic_finderMention', enc: true,
+      ph: '请填写需要添加的 @视频号，以 "@" 开头', scope: 'finder', root: 'doc', optional: true,
+      dId: 'ob-finder-mention', dLabel: '@视频号（选填）',
+      dPh: '如 @品牌官方号', dSec: 'finder' },
+
+    { key: 'finderMaterial', sk: 'orderBasic_finderMaterial', enc: true,
+      ph: '请输入网盘资源链接，支持腾讯微云、百度网盘链接', scope: 'finder', root: 'doc', optional: true,
+      ta: true, dId: 'ob-finder-material', dLabel: '相关素材链接（选填）',
+      dType: 'textarea', dPh: '请输入网盘资源链接…', dSec: 'finder' },
+
+    { key: 'finderOtherReq', sk: 'orderBasic_finderOtherReq', enc: true,
+      ph: '请填写其他要求，每栏仅填写 1 个要求', scope: 'finder', root: 'doc', optional: true,
+      ta: true, dId: 'ob-finder-other', dLabel: '其他要求（选填）',
+      dType: 'textarea', dPh: '请填写其他要求…', dSec: 'finder' },
 
     { key: 'selectionKeyword', sk: 'orderBasic_selectionKeyword', enc: true,
       dId: 'ob-selection-kw', dLabel: '选号列表搜索关键词',
@@ -152,11 +194,15 @@
 
     { key: 'autoOnLoad', sk: 'orderBasic_autoOnLoad', dflt: true,
       dId: 'ob-autoload', dLabel: '进入页面时自动填充一次', dType: 'checkbox', dSec: 'settings' },
+
+    { key: 'taskIconEnabled', sk: 'orderBasic_taskIconEnabled', dflt: false,
+      dId: 'ob-task-icon', dLabel: '自动填充任务图标占位图（800×800 JPEG）', dType: 'checkbox', dSec: 'settings' },
   ];
 
   const SECTION_HEADERS = {
     shared: '通用（下单页 & 招募页）',
     recruitment: '招募任务页 <code>recruitment/.../create</code>',
+    finder: '视频号招募任务页 <code>?type=finder</code>',
     selection: '选号列表页 <code>selection/.../selection_list</code>',
   };
 
@@ -187,6 +233,10 @@
 
   function isSelectionListPath(p) {
     return /\/trade\/selection\/\d+\/selection_list/.test(p || '');
+  }
+
+  function isFinderRecruitment() {
+    return new URLSearchParams(location.search).get('type') === 'finder';
   }
 
   function log(...args) { console.log(PREFIX, ...args); }
@@ -303,7 +353,13 @@
   }
 
   function isFillConfigValidForPath(c, path) {
-    if (isRecruitmentCreatePath(path)) return isRecruitmentFillConfigValid(c);
+    if (isRecruitmentCreatePath(path)) {
+      if (!isRecruitmentFillConfigValid(c)) return false;
+      if (isFinderRecruitment()) {
+        return !!(c.finderCpmPrice || '').trim() && !!(c.finderContentReq || '').trim();
+      }
+      return true;
+    }
     if (isOrderCreatePath(path)) return isOrderFillConfigValid(c);
     return isOrderFillConfigValid(c) || isRecruitmentFillConfigValid(c);
   }
@@ -539,7 +595,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Publish date range picker
+  // Date range picker — 通用：通过 itemSelector 区分报名/发表时段
   // ---------------------------------------------------------------------------
 
   function formatDate(d) {
@@ -551,12 +607,12 @@
     return key ? el[key] : null;
   }
 
-  async function ensurePublishDateRange(days) {
+  async function ensureDateRange(itemSelector, days, startDate) {
     const n = parseInt(days, 10);
     if (!n || n <= 0) return;
 
-    const dc = document.querySelector('.datechoose');
-    if (!dc) { log('未找到发表时段选择器'); return; }
+    const dc = document.querySelector(itemSelector);
+    if (!dc) { log('未找到日期选择器:', itemSelector); return; }
 
     const eh = getReactEventHandlers(dc);
     if (eh?.onClick) {
@@ -567,13 +623,11 @@
     await sleep(800);
 
     const picker = document.querySelector('.spaui-datepicker-open');
-    if (!picker) { log('发表时段面板未打开'); return; }
+    if (!picker) { log('日期面板未打开'); return; }
 
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const endDate = new Date(tomorrow);
+    const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + n - 1);
-    const startStr = formatDate(tomorrow);
+    const startStr = formatDate(startDate);
     const endStr = formatDate(endDate);
 
     function reactClick(el) {
@@ -636,21 +690,21 @@
       return false;
     }
 
-    const startClicked = await findAreaAndClickDay(tomorrow);
-    if (!startClicked) { log('发表时段：未能选中起始日期', startStr); return; }
+    const startClicked = await findAreaAndClickDay(startDate);
+    if (!startClicked) { log('未能选中起始日期', startStr); return; }
     await sleep(400);
 
     const endClicked = await findAreaAndClickDay(endDate);
-    if (!endClicked) { log('发表时段：未能选中结束日期', endStr); return; }
+    if (!endClicked) { log('未能选中结束日期', endStr); return; }
     await sleep(400);
 
     const confirmBtn = picker.querySelector('button.spaui-button-primary');
     if (confirmBtn) {
       confirmBtn.click();
-      log('发表时段已选择:', startStr, '至', endStr);
+      log('日期范围已选择:', startStr, '至', endStr);
       await sleep(300);
     } else {
-      log('发表时段面板未找到确定按钮');
+      log('日期面板未找到确定按钮');
     }
   }
 
@@ -732,6 +786,41 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Task icon — Canvas 生成 800×800 纯色 JPEG 占位图，通过 DataTransfer 注入
+  // ---------------------------------------------------------------------------
+
+  async function ensureTaskIcon() {
+    const container = document.querySelector('.trade-form__item-cooperateIcon');
+    if (!container) return;
+
+    const existingImg = container.querySelector('.spaui-upmedia-media img, .trade-image-upload img');
+    if (existingImg) { log('任务图标已有值，跳过'); return; }
+
+    const fileInput = document.querySelector('input[type=\"file\"]');
+    if (!fileInput) { log('任务图标：未找到 file input'); return; }
+    const canvas = document.createElement('canvas');
+    canvas.width = 800;
+    canvas.height = 800;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#4A6CF7';
+    ctx.fillRect(0, 0, 800, 800);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 52px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('任务图标', 400, 400);
+
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.6));
+    const file = new File([blob], 'task-icon.jpg', { type: 'image/jpeg' });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    fileInput.files = dt.files;
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+    log('任务图标已填充:', `${(blob.size / 1024).toFixed(1)} KB`);
+  }
+
+  // ---------------------------------------------------------------------------
   // fillBasicFields — uses fillByPlaceholder for simple fields
   // ---------------------------------------------------------------------------
 
@@ -754,6 +843,11 @@
       return false;
     }
 
+    // 提前启动独立异步任务 — 与后续串行步骤并行执行
+    const parallelTasks = [];
+    if (config.taskIconEnabled) parallelTasks.push(ensureTaskIcon());
+    if ((config.promoCopy || '').trim()) parallelTasks.push(ensureMarketingComponentAndFillPromo(config.promoCopy));
+
     if (recruitment) {
       await ensurePromotionScene(root, config.promotionScene);
     } else {
@@ -772,21 +866,34 @@
       if (!f.ph && !f.selector) continue;
       if (f.scope === 'order' && recruitment) continue;
       if (f.scope === 'recruitment' && !recruitment) continue;
+      if (f.scope === 'finder' && (!recruitment || !isFinderRecruitment())) continue;
       fillByPlaceholder(root, f, config[f.key]);
     }
 
     if (recruitment) {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+
+      const regDays = parseInt(config.registrationDays, 10);
+      if (regDays > 0) {
+        await ensureDateRange('.trade-form__item-registration_time .datechoose', regDays, tomorrow);
+      }
+
       const pubDays = parseInt(config.publishDays, 10);
       if (pubDays > 0) {
-        await ensurePublishDateRange(pubDays);
+        const pubStart = new Date(tomorrow.getTime() + 2 * 86400000);
+        await ensureDateRange('.trade-form__item-release_time .datechoose', pubDays, pubStart);
       }
     }
 
-    if ((config.promoCopy || '').trim()) {
-      await ensureMarketingComponentAndFillPromo(config.promoCopy);
-    }
+    // 等待所有提前启动的并行任务完成
+    await Promise.all(parallelTasks);
 
-    log(recruitment ? '招募页：任务概况与预算、制作要求等已尝试填充' : '下单页：基本信息已填充');
+    const finder = recruitment && isFinderRecruitment();
+    log(finder ? '视频号招募页：任务概况、CPM单价、视频要求等已尝试填充'
+      : recruitment ? '招募页：任务概况与预算、制作要求等已尝试填充'
+      : '下单页：基本信息已填充');
     return true;
   }
 
@@ -861,6 +968,8 @@ ${buildDialogRows('top')}
 ${buildDialogRows('shared')}
           <h4>${SECTION_HEADERS.recruitment}</h4>
 ${buildDialogRows('recruitment')}
+          <h4>${SECTION_HEADERS.finder}</h4>
+${buildDialogRows('finder')}
           <h4>${SECTION_HEADERS.selection}</h4>
 ${buildDialogRows('selection')}
 ${buildCheckboxes()}
