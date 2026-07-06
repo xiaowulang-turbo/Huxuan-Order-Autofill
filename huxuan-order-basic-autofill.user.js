@@ -2,19 +2,22 @@
 // @name         互选下单页-基本信息自动填充
 // @namespace    https://huxuan.qq.com/
 // @icon         https://file.daihuo.qq.com/fe_free_trade/favicon.png
-// @version      1.2.2
-// @description  在互选下单/招募创建页自动填充基础字段，支持选号列表页自动搜索
+// @version      1.3.1
+// @description  在互选下单/招募/联合创建页自动填充基础字段，支持选号列表页自动搜索
 // @author       xiaowu
 // @homepageURL  https://github.com/xiaowulang-turbo/Huxuan-AutoLogin
 // @supportURL   https://github.com/xiaowulang-turbo/Huxuan-AutoLogin/issues
 // @match        https://*.huxuan.qq.com/trade/order_free_trade/*/create*
 // @match        https://*.huxuan.qq.com/trade/recruitment/*/create*
+// @match        https://*.huxuan.qq.com/trade/joint/*/create*
 // @match        https://*.huxuan.qq.com/trade/selection/*/selection_list*
 // @match        https://huxuan.qq.com/trade/order_free_trade/*/create*
 // @match        https://huxuan.qq.com/trade/recruitment/*/create*
+// @match        https://huxuan.qq.com/trade/joint/*/create*
 // @match        https://huxuan.qq.com/trade/selection/*/selection_list*
 // @include      /^https:\/\/(test-|pre-)?huxuan\.qq\.com\/trade\/order_free_trade\/\d+\/create/
 // @include      /^https:\/\/(test-|pre-)?huxuan\.qq\.com\/trade\/recruitment\/\d+\/create/
+// @include      /^https:\/\/(test-|pre-)?huxuan\.qq\.com\/trade\/joint\/\d+\/create/
 // @include      /^https:\/\/(test-|pre-)?huxuan\.qq\.com\/trade\/selection\/\d+\/selection_list/
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -50,6 +53,18 @@
   // dMax          — maxlength
   // dSec          — dialog 分区：'top' | 'shared' | 'recruitment' | 'settings'
   // ---------------------------------------------------------------------------
+
+  // 必须在 FIELD_DEFS 之前声明，供 promotedProduct / productIntro.selector 引用
+  const PRODUCT_SEL = [
+    'input[placeholder="请输入推广产品"]',
+    'input[placeholder="请填写本次推广的产品名称"]',
+    'input[placeholder="请规范填写本次推广的产品名称，该信息会对作者可见"]',
+  ].join(', ');
+  const INTRO_SEL = [
+    'textarea[placeholder="请详细填写本次推广的内容主题、营销目标、以及想要传达的主要信息"]',
+    'textarea[placeholder="请详细填写本次推广的品牌/产品介绍、主题背景、营销诉求（如新品上市、节点活动、品牌曝光等）及核心传达信息，便于作者精准理解推广方向"]',
+  ].join(', ');
+
   const FIELD_DEFS = [
     { key: 'marketingProject', sk: 'orderBasic_marketingProject',
       dId: 'ob-marketing', dLabel: '营销项目（下单页必填）', dReq: true,
@@ -66,12 +81,13 @@
 
     { key: 'promotedProduct', sk: 'orderBasic_promotedProduct', enc: true,
       ph: '请填写本次推广的产品名称', scope: 'common', root: 'root',
-      selector: 'input[placeholder="请输入推广产品"], input[placeholder="请填写本次推广的产品名称"]',
+      selector: PRODUCT_SEL,
       dId: 'ob-product', dLabel: '推广产品', dReq: true, dSec: 'top' },
 
     { key: 'productIntro', sk: 'orderBasic_productIntro', enc: true,
       ph: '请详细填写本次推广的内容主题、营销目标、以及想要传达的主要信息',
       ta: true, scope: 'common', root: 'root',
+      selector: INTRO_SEL,
       dId: 'ob-intro', dLabel: '产品介绍', dReq: true, dType: 'textarea', dSec: 'top' },
 
     { key: 'phone', sk: 'orderBasic_phone', enc: true,
@@ -106,6 +122,7 @@
 
     { key: 'recruitmentBudget', sk: 'orderBasic_recruitmentBudget',
       ph: '请输入本次招募任务的预算金额', scope: 'recruitment', root: 'doc', norm: 'number',
+      selector: 'input[placeholder="请输入本次招募任务的预算金额"], input[placeholder="请输入本次联投任务的招募预算金额"]',
       dId: 'ob-budget', dLabel: '总预算（整数元）', dReq: true,
       dPh: '≥ 平台最低，如 5000', dSec: 'recruitment' },
 
@@ -149,8 +166,9 @@
 
     { key: 'finderCpmPrice', sk: 'orderBasic_finderCpmPrice', enc: true,
       ph: '请输入本次招募任务的 CPM 单价', scope: 'finder', root: 'doc', norm: 'number',
-      dId: 'ob-finder-cpm', dLabel: 'CPM 单价（元）', dReq: true,
-      dPh: '如 15', dSec: 'finder' },
+      selector: 'input[placeholder="请输入本次招募任务的 CPM 单价"], input[placeholder="请输入本次联投任务的一口价素材费"]',
+      dId: 'ob-finder-cpm', dLabel: 'CPM / CPO 单价（元）', dReq: true,
+      dPh: '如 15（CPM）或 300（CPO）', dSec: 'finder' },
 
     { key: 'finderContentReq', sk: 'orderBasic_finderContentReq', enc: true,
       ph: '例如产品实物出镜、近景特写、达人出镜、镜头时长、指定画面、口播介绍指定文字、品牌、slogan、商品卖点，是否添加口播字幕等',
@@ -233,6 +251,10 @@
 
   function isSelectionListPath(p) {
     return /\/trade\/selection\/\d+\/selection_list/.test(p || '');
+  }
+
+  function isJointCreatePath(p) {
+    return /\/trade\/joint\/\d+\/create/.test(p || '');
   }
 
   function isFinderRecruitment() {
@@ -352,7 +374,18 @@
     );
   }
 
+  function isJointFillConfigValid(c) {
+    return !!(
+      taskNameOk(c) &&
+      c.promotedProduct && c.productIntro &&
+      (c.recruitmentBudget || '').trim() &&
+      (c.finderCpmPrice || '').trim() &&
+      (c.finderContentReq || '').trim()
+    );
+  }
+
   function isFillConfigValidForPath(c, path) {
+    if (isJointCreatePath(path)) return isJointFillConfigValid(c);
     if (isRecruitmentCreatePath(path)) {
       if (!isRecruitmentFillConfigValid(c)) return false;
       if (isFinderRecruitment()) {
@@ -368,8 +401,7 @@
   // DOM root resolvers
   // ---------------------------------------------------------------------------
 
-  const PRODUCT_SEL = 'input[placeholder="请输入推广产品"], input[placeholder="请填写本次推广的产品名称"]';
-  const INTRO_SEL = 'textarea[placeholder="请详细填写本次推广的内容主题、营销目标、以及想要传达的主要信息"]';
+  // PRODUCT_SEL / INTRO_SEL 在文件顶部声明，供 FIELD_DEFS 与此处共用
   const ROOT_ANCHOR_SEL = `${PRODUCT_SEL}, ${INTRO_SEL}`;
 
   function resolveTaskSectionRoot(taskInput) {
@@ -821,12 +853,38 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Joint page content requirement checkboxes — must click before fillByPlaceholder
+  // ---------------------------------------------------------------------------
+
+  const JOINT_CHECKBOX_MAP = [
+    { key: 'finderContentReq', label: '视频内容要求' },
+    { key: 'finderTitleReq', label: '标题文案要求' },
+    { key: 'finderTopic', label: '#话题' },
+    { key: 'finderMention', label: '@视频号' },
+    { key: 'finderOtherReq', label: '其他要求' },
+  ];
+
+  function ensureJointContentCheckboxes(config) {
+    const checkboxes = document.querySelectorAll('label.spaui-checkbox');
+    for (const { key, label } of JOINT_CHECKBOX_MAP) {
+      if (!(config[key] || '').trim()) continue;
+      for (const cb of checkboxes) {
+        if (cb.textContent.trim() === label) {
+          cb.click();
+          break;
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // fillBasicFields — uses fillByPlaceholder for simple fields
   // ---------------------------------------------------------------------------
 
   async function fillBasicFields(config) {
     const path = window.location.pathname || '';
-    const recruitment = isRecruitmentCreatePath(path);
+    const isJoint = isJointCreatePath(path);
+    const recruitment = isRecruitmentCreatePath(path) || isJoint;
 
     let taskInput;
     try {
@@ -849,7 +907,9 @@
     if ((config.promoCopy || '').trim()) parallelTasks.push(ensureMarketingComponentAndFillPromo(config.promoCopy));
 
     if (recruitment) {
-      await ensurePromotionScene(root, config.promotionScene);
+      if (!isJoint) {
+        await ensurePromotionScene(root, config.promotionScene);
+      }
     } else {
       if (!root.querySelector('.spaui-select')) {
         log('未找到「营销项目」下拉（是否非下单创建页？）');
@@ -861,6 +921,12 @@
 
     const task = (config.taskName && config.taskName.trim()) || defaultTaskName(config);
     setInputValue(taskInput, task);
+
+    // 联合页面：先点 content checkbox 使隐藏字段 render 出来，再 fill
+    if (isJoint) {
+      ensureJointContentCheckboxes(config);
+      await sleep(600);
+    }
 
     for (const f of FIELD_DEFS) {
       if (!f.ph && !f.selector) continue;
@@ -891,7 +957,8 @@
     await Promise.all(parallelTasks);
 
     const finder = recruitment && isFinderRecruitment();
-    log(finder ? '视频号招募页：任务概况、CPM单价、视频要求等已尝试填充'
+    log(isJoint ? '联投创建页：任务概况、CPO单价、视频要求等已尝试填充'
+      : finder ? '视频号招募页：任务概况、CPM单价、视频要求等已尝试填充'
       : recruitment ? '招募页：任务概况与预算、制作要求等已尝试填充'
       : '下单页：基本信息已填充');
     return true;
@@ -1057,9 +1124,10 @@ ${buildCheckboxes()}
     const path = window.location.pathname || '';
     const isOrder = isOrderCreatePath(path);
     const isRecruitment = isRecruitmentCreatePath(path);
+    const isJoint = isJointCreatePath(path);
     const isSelection = isSelectionListPath(path);
 
-    if (!isOrder && !isRecruitment && !isSelection) return;
+    if (!isOrder && !isRecruitment && !isJoint && !isSelection) return;
 
     const config = getConfig();
     if (!config.enabled) { log('已禁用'); return; }
