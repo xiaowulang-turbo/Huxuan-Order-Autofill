@@ -2,7 +2,7 @@
 // @name         互选下单页-基本信息自动填充
 // @namespace    https://huxuan.qq.com/
 // @icon         https://file.daihuo.qq.com/fe_free_trade/favicon.png
-// @version      1.3.1
+// @version      1.4.2
 // @description  在互选下单/招募/联合创建页自动填充基础字段，支持选号列表页自动搜索
 // @author       xiaowu
 // @homepageURL  https://github.com/xiaowulang-turbo/Huxuan-AutoLogin
@@ -133,7 +133,8 @@
 
     { key: 'recruitmentCap', sk: 'orderBasic_recruitmentCap',
       ph: '请输入本次招募任务的单篇预算上限', scope: 'recruitment', root: 'doc', norm: 'number',
-      dId: 'ob-cap', dLabel: '单篇预算上限（整数元）', dReq: true,
+      selector: 'input[placeholder="请输入本次招募任务的单篇预算上限"], input[placeholder="请输入本次招募任务的收益上限"]',
+      dId: 'ob-cap', dLabel: '单篇预算上限 / 收益上限（整数元）', dReq: true,
       dPh: '如 500', dSec: 'recruitment' },
 
     { key: 'recruitmentTitleReq', sk: 'orderBasic_recruitmentTitleReq', enc: true,
@@ -213,8 +214,18 @@
     { key: 'autoOnLoad', sk: 'orderBasic_autoOnLoad', dflt: true,
       dId: 'ob-autoload', dLabel: '进入页面时自动填充一次', dType: 'checkbox', dSec: 'settings' },
 
+    { key: 'brandNameForAd', sk: 'orderBasic_brandNameForAd', enc: true,
+      ph: '请输入品牌名称', scope: 'common', root: 'doc', optional: true,
+      dId: 'ob-brand-name-ad', dLabel: '品牌名称（选填，图文模式下出现，≤10字）',
+      dPh: '如：品牌中文名', dMax: 10, dSec: 'shared',
+      dHint: '仅图文模式（trade_mode=4）下单页有此字段，其他页留空即可' },
+
     { key: 'taskIconEnabled', sk: 'orderBasic_taskIconEnabled', dflt: false,
       dId: 'ob-task-icon', dLabel: '自动填充任务图标占位图（800×800 JPEG）', dType: 'checkbox', dSec: 'settings' },
+
+    { key: 'brandAvatarEnabled', sk: 'orderBasic_brandAvatarEnabled', dflt: true,
+      dId: 'ob-brand-avatar', dLabel: '自动填充品牌形象占位图（800×800 / ≤80KB）', dType: 'checkbox',
+      dSec: 'settings', dHint: '仅图文模式（trade_mode=4）下单页有此字段；PNG/JPEG/GIF' },
   ];
 
   const SECTION_HEADERS = {
@@ -818,38 +829,89 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Task icon — Canvas 生成 800×800 纯色 JPEG 占位图，通过 DataTransfer 注入
+  // Placeholder image helpers — Canvas 生成纯色 + 居中文字占位图、注入 file input
   // ---------------------------------------------------------------------------
 
-  async function ensureTaskIcon() {
-    const container = document.querySelector('.trade-form__item-cooperateIcon');
-    if (!container) return;
-
-    const existingImg = container.querySelector('.spaui-upmedia-media img, .trade-image-upload img');
-    if (existingImg) { log('任务图标已有值，跳过'); return; }
-
-    const fileInput = document.querySelector('input[type=\"file\"]');
-    if (!fileInput) { log('任务图标：未找到 file input'); return; }
+  async function buildPlaceholderImage(size, bg, text, fontSize, mime, quality) {
     const canvas = document.createElement('canvas');
-    canvas.width = 800;
-    canvas.height = 800;
+    canvas.width = size;
+    canvas.height = size;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#4A6CF7';
-    ctx.fillRect(0, 0, 800, 800);
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, size, size);
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 52px -apple-system, sans-serif';
+    ctx.font = `bold ${fontSize}px -apple-system, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('任务图标', 400, 400);
+    ctx.fillText(text, size / 2, size / 2);
+    return new Promise((r) => canvas.toBlob(r, mime, quality));
+  }
 
-    const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.6));
-    const file = new File([blob], 'task-icon.jpg', { type: 'image/jpeg' });
+  function injectFileIntoInput(fileInput, blob, fileName) {
+    const file = new File([blob], fileName, { type: blob.type });
     const dt = new DataTransfer();
     dt.items.add(file);
     fileInput.files = dt.files;
     fileInput.dispatchEvent(new Event('change', { bubbles: true }));
     fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Task icon — Canvas 生成 800×800 纯色 JPEG 占位图
+  // ---------------------------------------------------------------------------
+
+  async function ensureTaskIcon() {
+    let container;
+    try {
+      container = await waitForElement('.trade-form__item-cooperateIcon', document, 3000);
+    } catch {
+      log('任务图标：未找到容器（该字段可能不存在，跳过）');
+      return;
+    }
+
+    const existingImg = container.querySelector('.spaui-upmedia-media img, .trade-image-upload img');
+    if (existingImg) { log('任务图标已有值，跳过'); return; }
+
+    const fileInput =
+      container.querySelector('input[type="file"]') ||
+      document.querySelector('input[type="file"]');
+    if (!fileInput) { log('任务图标：未找到 file input'); return; }
+
+    const blob = await buildPlaceholderImage(800, '#4A6CF7', '任务图标', 52, 'image/jpeg', 0.6);
+    if (!blob) { log('任务图标：生成占位图失败'); return; }
+
+    injectFileIntoInput(fileInput, blob, 'task-icon.jpg');
     log('任务图标已填充:', `${(blob.size / 1024).toFixed(1)} KB`);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Brand avatar — Canvas 生成 800×800 纯色 JPEG 占位图，≤80KB
+  // ---------------------------------------------------------------------------
+
+  async function ensureBrandAvatar() {
+    let container;
+    try {
+      container = await waitForElement('.trade-form__item-brand_avatar', document, 3000);
+    } catch {
+      log('品牌形象：未找到容器（非图文模式 trade_mode=4？跳过）');
+      return;
+    }
+
+    const existingImg = container.querySelector('.spaui-upmedia-media img, .trade-image-upload img');
+    if (existingImg) { log('品牌形象已有值，跳过'); return; }
+
+    const fileInput =
+      container.querySelector('input[type="file"]') ||
+      document.querySelector('input[type="file"]');
+    if (!fileInput) { log('品牌形象：未找到 file input'); return; }
+
+    const blob = await buildPlaceholderImage(800, '#4A6CF7', '品牌形象', 48, 'image/jpeg', 0.5);
+    if (!blob) { log('品牌形象：生成占位图失败'); return; }
+
+    injectFileIntoInput(fileInput, blob, 'brand-avatar.jpg');
+    const sizeKB = (blob.size / 1024).toFixed(1);
+    const sizeNote = blob.size <= 80 * 1024 ? '✓ 合规' : '⚠ 超 80KB';
+    log('品牌形象已填充:', `${sizeKB} KB`, sizeNote);
   }
 
   // ---------------------------------------------------------------------------
@@ -904,6 +966,7 @@
     // 提前启动独立异步任务 — 与后续串行步骤并行执行
     const parallelTasks = [];
     if (config.taskIconEnabled) parallelTasks.push(ensureTaskIcon());
+    if (config.brandAvatarEnabled) parallelTasks.push(ensureBrandAvatar());
     if ((config.promoCopy || '').trim()) parallelTasks.push(ensureMarketingComponentAndFillPromo(config.promoCopy));
 
     if (recruitment) {
